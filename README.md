@@ -54,16 +54,3 @@ apagar contas
 contas editar meunu eclado
 tranferencia contas
 
-- apagar dividas
-
-
-- 300/3
-- 100
-
-
-150/3
-100
-
-1
-200 - 100 - 100
-150 -  50 -  50
