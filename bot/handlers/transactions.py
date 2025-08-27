@@ -932,12 +932,30 @@ async def save_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verifica se a conta é cartão e se é uma saída
         if account.type == "credit_card" and t_type == "saida" and installments > 1:
             installment_value = round(float(value_to_use) / installments, 2)
-            # garante que tx.id esteja disponível no creditor: flush para obter tx.id
-            await session.flush()
-            tx_id = tx.id
-            creditor = f"{account.name} - Parcelado #{tx_id}"
+             # Determina o próximo número de parcela sequencial
+            async with get_session() as session:
+                result = await session.execute(
+                    select(Debt)
+                    .where(Debt.profile_id == profile.id)
+                    .where(Debt.type == DebtType.PARCELADO)
+                    .where(Debt.creditor.ilike(f"{account.name} - Parcelado #%"))
+                )
+                existing = result.scalars().all()
+                # Extrai números existentes
+                existing_numbers = []
+                for d in existing:
+                    try:
+                        num = int(d.creditor.split("#")[-1])
+                        existing_numbers.append(num)
+                    except Exception:
+                        continue
+                next_number = max(existing_numbers) + 1 if existing_numbers else 1
+
+            # Cria o debt com o número sequencial correto
+            creditor = f"{account.name} - Parcelado #{next_number}"
             debt = Debt(profile_id=profile.id, creditor=creditor, months=installments, monthly_payment=installment_value, type=DebtType.PARCELADO)
             session.add(debt)
+            await session.flush()
             # Acrescenta uma linha informativa à descrição
             tx.description = (tx.description or "") + f"📦 Parcelado em {installments}x de R$ {installment_value:.2f} (total R$ {value_to_use:.2f})"
 
