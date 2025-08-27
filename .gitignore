@@ -1,0 +1,28 @@
+# Ambiente virtual
+venv/
+.venv/
+ENV/
+env/
+
+# Arquivos de dependências locais
+*.egg-info/
+*.egg
+*.pyc
+*.pyo
+__pycache__/
+
+# Arquivos de configuração locais
+.env
+*.sqlite3
+
+# Logs
+*.log
+
+# IDEs e editores
+.vscode/
+.idea/
+
+# Testes e coverage
+.coverage
+.pytest_cache/
+htmlcov/
