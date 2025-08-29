@@ -1,7 +1,6 @@
 # quick_purchase.py
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
-from telegram.constants import ChatAction
 from sqlalchemy import select
 
 from db.session import get_session
@@ -10,7 +9,7 @@ from db.models import (
     Account, CurrencyEnum
 )
 from db.auth import auth
-from  handlers.transactions import save_transaction
+from handlers.transactions import save_transaction
 
 
 async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,7 +39,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         context.user_data["value"] = value
-        await context.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
 
         async with get_session() as session:
             result = await session.execute(
@@ -75,7 +74,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("Digite o NOME da nova categoria:", reply_markup=ReplyKeyboardRemove())
             return
 
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             result = await session.execute(
                 select(Category)
@@ -105,7 +104,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("Nome inválido. Digite o nome da nova categoria:")
             return
 
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             result = await session.execute(
                 select(Category)
@@ -139,7 +138,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if text in ("sim",):
             context.user_data["step_quick_purchase"] = "qp_card"
-            await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            await update.message.reply_text("⌛ Processando...")
             async with get_session() as session:
                 result = await session.execute(
                     select(Account).where(Account.profile_id == profile.id).where(Account.type == "credit_card").order_by(Account.name)
@@ -159,7 +158,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         context.user_data["step_quick_purchase"] = "qp_account"
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             result = await session.execute(
                 select(Account).where(Account.profile_id == profile.id).where(Account.type == "bank").order_by(Account.name)
@@ -183,7 +182,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not name:
             await update.message.reply_text("Nome inválido. Digite o nome do cartão:")
             return
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             card = Account(profile_id=profile.id, name=name, type="credit_card", balance=0.0, currency=CurrencyEnum.BRL)
             session.add(card)
@@ -203,7 +202,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         chosen = raw.strip()
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             result = await session.execute(
                 select(Account).where(Account.profile_id == profile.id).where(Account.type == "credit_card").where(Account.name.ilike(chosen))
@@ -226,7 +225,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not name:
             await update.message.reply_text("Nome inválido. Digite o nome da conta:")
             return
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             acc = Account(profile_id=profile.id, name=name, type="bank", balance=0.0, currency=CurrencyEnum.BRL)
             session.add(acc)
@@ -246,7 +245,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         chosen = raw.strip()
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         async with get_session() as session:
             result = await session.execute(
                 select(Account).where(Account.profile_id == profile.id).where(Account.type == "bank").where(Account.name.ilike(chosen))
@@ -289,7 +288,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data["account_id"] = context.user_data.get("card_account_id")
         context.user_data["card_installments"] = int(context.user_data.get("card_installments", 1))
 
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await update.message.reply_text("⌛ Processando...")
         await save_transaction(update, context)
 
         await update.message.reply_text("✅ Saída registrada com sucesso!", reply_markup=ReplyKeyboardRemove())
