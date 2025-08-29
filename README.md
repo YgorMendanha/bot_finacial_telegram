@@ -1,56 +1,41 @@
-- transações
-   - tipo
-      - entrada
-      - saida
-   - categoria
-   - valor
-   - descriçao
+# Bot Financeiro (Telegram)
 
-- categoria
-   - nome 
-   - tipo
-      - variavel
-         - Mercado
-         - Restaurantes
-         - Delivery
-         - Transporte
-         - Lazer
-         - Emergência
-         - Gás
-      - fixa
-         - Aluguel
-         - Luz
-         - Internet
-         - Assinaturas
-         - Academia
+## Visão geral
+O **Bot Financeiro** é um bot para Telegram desenvolvido para ajudar no controle financeiro do dia a dia.  
+Ele permite registrar transações (entradas e saídas), gerenciar débitos e contas, definir metas diárias de gasto e gerar resumos mensais de receitas e despesas, diferenciando gastos fixos e variáveis.
 
+---
 
-- gastos detalhados mes
-   - total de despesa no mes
-   - total de receita no mes
-   - por categoria
-   - fixos e variaveis
+## Tecnologias principais
+- **Python 3.11+**
+- **python-telegram-bot** — integração com a API do Telegram  
+- **SQLAlchemy** — ORM para persistência de dados  
 
-- dados gerais
-   - reeita media mensal
-   - despesa media mendal
-   - dividas totais e detalhadas 
-   - valor total em reais na conta
-   - valor da reserva de emergencia
+## Comandos disponíveis
+- `/start` — criação do usuário e configuração das contas principais  
+- `/comprarapida` — adicionar uma compra rápida  
+- `/add` — adicionar transação (entrada ou saída)  
+- `/carteira` — definir ou consultar a meta diária de gastos  
+- `/listacategorias` — listar ou adicionar categorias (fixas ou variáveis)  
+- `/resumo` — exibir resumo mensal de receitas e despesas  
+- `/meusdados` — visualizar dados do usuário (contas, dívidas, cartões)  
 
-- carteira
- -gastar no dia
- - ja gasto no dia
- 
+---
 
- - compra
-   - variavel
-   - conta do caixa
+## Configuração e execução local
 
-- pagar conta    
-    - valor incorreto para so pagar fatura
+1. Clone o repositório:
+   ```bash
+   git clone https://github.com/seu-usuario/bot-financeiro.git
+   cd bot-financeiro
 
-apagar contas
-contas editar meunu eclado
-tranferencia contas
+   python -m venv .venv
+   source .venv/bin/activate   # Linux / macOS
+   .venv\Scripts\activate      # Windows
+
+   TELEGRAM_BOT_TOKEN=seu_token_aqui
+   DATABASE_URL=postgresql+asyncpg://usuario:senha@localhost:5432/financas
+
+   python main.py
+
 
