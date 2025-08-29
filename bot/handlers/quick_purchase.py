@@ -40,7 +40,7 @@ async def add_quick_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         context.user_data["value"] = value
-        await context. send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        await context.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
         async with get_session() as session:
             result = await session.execute(
