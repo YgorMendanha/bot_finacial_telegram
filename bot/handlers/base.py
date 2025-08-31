@@ -41,6 +41,7 @@ async def step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await my_data(update, context)
         return
 
+
 def register_handlers(app): 
     
     app.add_handler(CommandHandler("start", start_handler))
@@ -63,12 +64,11 @@ def register_handlers(app):
     # Meu Dados
     app.add_handler(CommandHandler("meusdados", my_data))
 
-
-
     # Handler global para texto
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, step_handler))
 
     app.add_handler(CommandHandler("exit", exit_handler))
 
+    
     
 

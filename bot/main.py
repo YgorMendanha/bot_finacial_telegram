@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from telegram.ext import ApplicationBuilder
+from telegram.ext import ApplicationBuilder, ContextTypes
 from telegram import BotCommand
 from config import Env
 from handlers.base import register_handlers
@@ -8,9 +8,15 @@ from handlers.base import register_handlers
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+async def error_handler(update, context: ContextTypes.DEFAULT_TYPE):
+    logger.exception("Exception while handling update: %s", update)
+
 async def main():
     app = ApplicationBuilder().token(Env.TELEGRAM_TOKEN).build()
     register_handlers(app)
+
+    app.add_error_handler(error_handler)
 
     await app.initialize()
     await app.start()

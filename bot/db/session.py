@@ -7,7 +7,7 @@ from  config import Env
 DATABASE_URL = Env.DATABASE_URL  
 DATABASE_URL = re.sub(r'^(postgres)(ql)?\:', r'postgresql+asyncpg:', DATABASE_URL)
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
 
 AsyncSessionMaker = async_sessionmaker(bind=engine, expire_on_commit=False)
 Base = declarative_base()
