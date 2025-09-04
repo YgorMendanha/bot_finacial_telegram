@@ -607,333 +607,362 @@ async def add_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    t_type = context.user_data.get("type")
-    value = context.user_data.get("value")
-    category_name = context.user_data.get("category")
-    account_category_id = context.user_data.get("category_id")
-    description = context.user_data.get("description", "")
-    account_id = context.user_data.get("account_id")
-    profile_id = context.user_data.get("profile_id")
-    today = datetime.date.today()
 
-    await update.message.reply_text("⌛ Salvando...")
+    try:
+        t_type = context.user_data.get("type")
+        value = context.user_data.get("value")
+        category_name = context.user_data.get("category")
+        account_category_id = context.user_data.get("category_id")
+        description = context.user_data.get("description", "")
+        account_id = context.user_data.get("account_id")
+        profile_id = context.user_data.get("profile_id")
+        today = datetime.date.today()
 
-    async with get_session() as session:
-        profile = await session.get(Profile, profile_id)
-        if not profile:
-            await update.message.reply_text("⚠️ Perfil não encontrado. Operação cancelada.")
-            return
+        # Mensagem inicial
+        try:
+            await update.message.reply_text("⌛ Salvando...")
+        except Exception:
+            # se falhar ao responder, não interrompe o fluxo
+            pass
 
-        # Inicializa variáveis
-        debt_info_line = ""
-        category = None
-        value_to_use = value
+        async with get_session() as session:
+            profile = await session.get(Profile, profile_id)
+            if not profile:
+                await update.message.reply_text("⚠️ Perfil não encontrado. Operação cancelada.")
+                return
 
-        # Tratamento de dívida (inclui pagamentos de fatura de cartão)
-        if context.user_data.get("is_debt_payment"):
-            # Se pagamento de cartão
-            if context.user_data.get("debt_is_card"):
-                card_account_id = context.user_data.get("debt_card_account_id")
-                paid_total = context.user_data.get("debt_advance_total") or value
+            # Inicializa variáveis
+            debt_info_line = ""
+            category = None
+            # garantia que value_to_use é float válido
+            try:
+                value_to_use = float(value) if value is not None else 0.0
+            except Exception:
+                value_to_use = 0.0
 
-                # Não alteramos 'Debt' aqui; apenas guardamos o total que será usado
-                value_to_use = paid_total
-                debt_info_line = f"🔁 Pagamento de fatura do cartão: R$ {paid_total:.2f}"
+            # Tratamento de dívida (inclui pagamentos de fatura de cartão)
+            if context.user_data.get("is_debt_payment"):
+                # Se pagamento de cartão
+                if context.user_data.get("debt_is_card"):
+                    card_account_id = context.user_data.get("debt_card_account_id")
+                    try:
+                        paid_total = float(context.user_data.get("debt_advance_total") or value_to_use)
+                    except Exception:
+                        paid_total = float(value_to_use or 0.0)
 
-            else:
-                # pagamento de dívida comum
-                debt_id = context.user_data.get("debt_selected_id")
-                months_to_pay = context.user_data.get("debt_paid_months") or context.user_data.get("debt_advance_months_num")
-                paid_total = context.user_data.get("debt_advance_total") or value
+                    value_to_use = paid_total
+                    debt_info_line = f"🔁 Pagamento de fatura do cartão: R$ {paid_total:.2f}"
 
-                debt = await session.get(Debt, debt_id)
-                if not debt or debt.profile_id != profile.id:
-                    await update.message.reply_text("⚠️ Dívida inválida. Operação cancelada.")
+                else:
+                    # pagamento de dívida comum
+                    debt_id = context.user_data.get("debt_selected_id")
+                    months_to_pay = context.user_data.get("debt_paid_months") or context.user_data.get("debt_advance_months_num") or 1
+                    try:
+                        paid_total = float(context.user_data.get("debt_advance_total") or value_to_use)
+                    except Exception:
+                        paid_total = float(value_to_use or 0.0)
+
+                    debt = await session.get(Debt, debt_id)
+                    if not debt or debt.profile_id != profile.id:
+                        await update.message.reply_text("⚠️ Dívida inválida. Operação cancelada.")
+                        return
+
+                    remaining_before = debt.months
+                    debt.months = max(0, debt.months - int(months_to_pay))
+                    if debt.months == 0:
+                        await session.delete(debt)
+                    else:
+                        session.add(debt)
+
+                    # Define categoria automaticamente
+                    category_name_default = "Pagamento de Dívida"
+                    category_name_advance = "Pagamento Antecipado de Dívida"
+
+                    if context.user_data.get("debt_advance_total"):
+                        chosen_category_name = category_name_advance
+                        chosen_category_type = CategoryType.VARIAVEL
+                    else:
+                        chosen_category_name = category_name_default
+                        chosen_category_type = CategoryType.FIXA
+
+                    # Busca ou cria categoria (usando a mesma session)
+                    result = await session.execute(
+                        select(Category).where(Category.profile_id == profile.id).where(Category.name == chosen_category_name)
+                    )
+                    category = result.scalar_one_or_none()
+                    if not category:
+                        category = Category(profile_id=profile.id, name=chosen_category_name, type=chosen_category_type)
+                        session.add(category)
+                        await session.flush()
+
+                    value_to_use = paid_total
+
+                    # Calcula diferença entre esperado e pago
+                    expected_total = float(debt.monthly_payment) * int(months_to_pay) if getattr(debt, "monthly_payment", None) is not None else 0.0
+                    diff = expected_total - float(paid_total) if expected_total else 0.0
+                    pct = (abs(diff) / expected_total * 100) if expected_total > 0 else 0.0
+                    if diff > 0.0001:
+                        diff_line = f"💸 Desconto: R$ {diff:.2f} ({pct:.1f}% do esperado)"
+                    elif diff < -0.0001:
+                        diff_line = f"⚠️ Acréscimo: R$ {abs(diff):.2f} ({pct:.1f}% acima do esperado)"
+                    else:
+                        diff_line = "✅ Sem desconto nem acréscimo (valor igual ao esperado)."
+
+                    debt_info_line = (
+                        f"🔁 Pagamento de dívida: {months_to_pay} mês(es) abatidos. "
+                        f"Meses antes: {remaining_before}, depois: {debt.months if 'debt' in locals() and debt is not None else 0}. {diff_line}"
+                    )
+
+            # Para SAÍDAS normais com categoria definida
+            elif t_type == "saida":
+                # Preferir category_id salvo durante o fluxo de seleção/criação
+                if account_category_id:
+                    result = await session.execute(
+                        select(Category).where(Category.id == account_category_id).where(Category.profile_id == profile.id)
+                    )
+                    category = result.scalar_one_or_none()
+                if not category and category_name:
+                    result = await session.execute(
+                        select(Category)
+                        .where(Category.name.ilike(category_name))
+                        .where(Category.profile_id == profile.id)
+                    )
+                    category = result.scalar_one_or_none()
+                if not category:
+                    await update.message.reply_text("⚠️ Categoria não encontrada. Por favor, crie a categoria antes.")
                     return
 
-                remaining_before = debt.months
-                debt.months = max(0, debt.months - months_to_pay)
-                # apagar se zerou (você pediu que a dívida seja removida quando finalizada)
-                if debt.months == 0:
-                    await session.delete(debt)
-                else:
-                    session.add(debt)
-
-                # Define categoria automaticamente
-                category_name_default = "Pagamento de Dívida"
-                category_name_advance = "Pagamento Antecipado de Dívida"
-
-                if context.user_data.get("debt_advance_total"):
-                    chosen_category_name = category_name_advance
-                    chosen_category_type = CategoryType.VARIAVEL
-                else:
-                    chosen_category_name = category_name_default
-                    chosen_category_type = CategoryType.FIXA
-
-                # Busca ou cria categoria
-                result = await session.execute(
-                    select(Category).where(Category.profile_id == profile.id).where(Category.name == chosen_category_name)
-                )
-                category = result.scalar_one_or_none()
-                if not category:
-                    category = Category(profile_id=profile.id, name=chosen_category_name, type=chosen_category_type)
-                    session.add(category)
-                    await session.flush()
-
-                value_to_use = paid_total
-
-                # Calcula desconto/acréscimo
-                expected_total = float(debt.monthly_payment) * months_to_pay if getattr(debt, "monthly_payment", None) is not None else 0
-                diff = expected_total - float(paid_total)
-                pct = (abs(diff) / expected_total * 100) if expected_total > 0 else 0.0
-                if diff > 0.0001:
-                    diff_line = f"💸 Desconto: R$ {diff:.2f} ({pct:.1f}% do esperado)"
-                elif diff < -0.0001:
-                    diff_line = f"⚠️ Acréscimo: R$ {abs(diff):.2f} ({pct:.1f}% acima do esperado)"
-                else:
-                    diff_line = "✅ Sem desconto nem acréscimo (valor igual ao esperado)."
-
-                debt_info_line = (
-                    f"🔁 Pagamento de dívida: {months_to_pay} mês(es) abatidos. "
-                    f"Meses antes: {remaining_before}, depois: {debt.months if 'debt' in locals() and debt is not None else 0}. {diff_line}"
-                )
-
-        # Para SAÍDAS normais com categoria definida
-        elif t_type == "saida":
-            # Preferir category_id salvo durante o fluxo de seleção/criação
-            if account_category_id:
-                result = await session.execute(
-                    select(Category).where(Category.id == account_category_id).where(Category.profile_id == profile.id)
-                )
-                category = result.scalar_one_or_none()
-            if not category and category_name:
-                result = await session.execute(
-                    select(Category)
-                    .where(Category.name.ilike(category_name))
-                    .where(Category.profile_id == profile.id)
-                )
-                category = result.scalar_one_or_none()
-            if not category:
-                await update.message.reply_text("⚠️ Categoria não encontrada. Por favor, crie a categoria antes.")
+            # Busca conta (conta onde será registrada a transação fornecida pelo usuário)
+            result = await session.execute(
+                select(Account)
+                .where(Account.id == account_id)
+                .where(Account.profile_id == profile.id)
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                await update.message.reply_text("⚠️ Conta não encontrada. Operação cancelada.")
                 return
 
-        # Busca conta (conta onde será registrada a transação fornecida pelo usuário)
-        result = await session.execute(
-            select(Account)
-            .where(Account.id == account_id)
-            .where(Account.profile_id == profile.id)
-        )
-        account = result.scalar_one_or_none()
-        if not account:
-            await update.message.reply_text("⚠️ Conta não encontrada. Operação cancelada.")
-            return
+            # tx_value: entradas positivas, saídas negativas
+            tx_value = value_to_use if t_type == "entrada" else -value_to_use
 
-        # tx_value: entradas positivas, saídas negativas
-        tx_value = value_to_use if t_type == "entrada" else -value_to_use
-
-        # Calcula balance_before para a conta escolhida
-        result = await session.execute(
-            select(Transaction)
-            .where(Transaction.account_id == account.id)
-            .where(Transaction.date == today)
-            .order_by(Transaction.id.desc())
-        )
-        last_tx_today = result.scalars().first()
-        balance_before = (last_tx_today.balance_before + last_tx_today.value) if last_tx_today else (account.balance or 0)
-
-        # Caso especial: pagamento de fatura de cartão (debt_is_card True)
-                # Caso especial: pagamento de fatura de cartão (debt_is_card True)
-        if context.user_data.get("is_debt_payment") and context.user_data.get("debt_is_card"):
-            bank_account = account  # conta origem do pagamento (onde sai o dinheiro)
-            card_account_id = context.user_data.get("debt_card_account_id")
-            card_account = await session.get(Account, card_account_id)
-            if not card_account:
-                await update.message.reply_text("⚠️ Conta do cartão não encontrada. Operação cancelada.")
-                return
-
-            paid_total = float(value_to_use)
-
-            # Busca TODAS as transações NÃO liquidadas do cartão (sem filtro por mês)
+            # Calcula balance_before para a conta escolhida (trata None como 0)
             result = await session.execute(
                 select(Transaction)
-                .where(Transaction.account_id == card_account.id)
-                .where(Transaction.is_settled == False)
-            )
-            card_txs = result.scalars().all()
-
-            invoice_total = 0.0
-            # coleções auxiliares:
-            debt_links_to_reduce = []   # lista de Debt ORM objects que serão abatidos (1 parcela cada)
-            nonparcel_txs = []          # lista de Transaction ORM objects que devem ser marcadas como settled
-
-            # Primeiro: calcular total a pagar baseado em:
-            # - compras não-parceladas (somam o valor inteiro)
-            # - parcelamentos: somam apenas monthly_payment dos Debt vinculados
-            for tx in card_txs:
-                if tx.value is None or tx.value >= 0:
-                    continue
-                desc = (tx.description or "").lower()
-
-                # tenta encontrar Debts PARCELADO vinculados a essa tx
-                debt_result = await session.execute(
-                    select(Debt)
-                    .where(Debt.profile_id == card_account.profile_id)
-                    .where(Debt.creditor.ilike(f"%#{tx.id}"))
-                    .where(Debt.type == DebtType.PARCELADO)
-                    .where(Debt.months > 0)
-                )
-                linked_debts = debt_result.scalars().all()
-
-                if linked_debts:
-                    # soma a parcela mensal de cada parcelamento vinculado
-                    for linked in linked_debts:
-                        try:
-                            monthly = float(linked.monthly_payment)
-                            invoice_total += monthly
-                            # registramos que esse Debt precisa ser abatido (não marcamos a tx como settled)
-                            debt_links_to_reduce.append(linked)
-                        except Exception:
-                            # fallback: se monthly inválido, soma valor da transação
-                            invoice_total += -tx.value
-                            nonparcel_txs.append(tx)
-                else:
-                    # não há parcelamento vinculado -> compra à vista/única: soma valor inteiro e marcar para settled
-                    invoice_total += -tx.value
-                    nonparcel_txs.append(tx)
-
-            invoice_total = round(invoice_total, 2)
-
-            # Se user confirmou paid_total <-> invoice_total em outro lugar, segue. Aqui usamos paid_total recebido.
-            # Atualiza saldos: saída na conta bancária (reduz) e \"liquidação\" no cartão (reduz fatura)
-            bank_account.balance = (bank_account.balance or 0) - paid_total
-            card_account.balance = (card_account.balance or 0) + paid_total
-
-            # Criar transações de saída (bancária) e entrada (no cartão)
-            bank_tx = Transaction(
-                type=TransactionType("saida"),
-                value=-paid_total,
-                category_id=(category.id if category else None),
-                account_id=bank_account.id,
-                profile_id=profile.id,
-                description=(description or "") + (f" {debt_info_line}" if debt_info_line else ""),
-                date=today,
-                balance_before=balance_before
-            )
-
-            # balance_before para o cartão
-            result = await session.execute(
-                select(Transaction)
-                .where(Transaction.account_id == card_account.id)
+                .where(Transaction.account_id == account.id)
                 .where(Transaction.date == today)
                 .order_by(Transaction.id.desc())
             )
-            last_tx_card_today = result.scalars().first()
-            card_balance_before = (last_tx_card_today.balance_before + last_tx_card_today.value) if last_tx_card_today else (card_account.balance - paid_total)
+            last_tx_today = result.scalars().first()
+            if last_tx_today:
+                last_balance_before = last_tx_today.balance_before or 0
+                last_value = last_tx_today.value or 0
+                balance_before = last_balance_before + last_value
+            else:
+                balance_before = account.balance or 0
 
-            card_tx = Transaction(
-                type=TransactionType("entrada"),
-                value=paid_total,
-                category_id=None,
-                account_id=card_account.id,
-                profile_id=profile.id,
-                description=(f"Pagamento do cartão via {bank_account.name}."),
-                date=today,
-                balance_before=card_balance_before
-            )
+            # Caso especial: pagamento de fatura de cartão (debt_is_card True)
+            if context.user_data.get("is_debt_payment") and context.user_data.get("debt_is_card"):
+                # account aqui é a conta bancária de onde sai o pagamento
+                bank_account = account
+                card_account_id = context.user_data.get("debt_card_account_id")
+                card_account = await session.get(Account, card_account_id)
+                if not card_account:
+                    await update.message.reply_text("⚠️ Conta do cartão não encontrada. Operação cancelada.")
+                    return
 
-            session.add(bank_tx)
-            session.add(card_tx)
-            session.add(bank_account)
-            session.add(card_account)
-
-            # Agora: aplicar abatimentos nos debts PARCELADO (reduz months em 1) — NÃO marcamos as transações parceladas como settled
-            debt_updates_info = []
-            # Usamos um set para evitar abater o mesmo Debt múltiplas vezes caso apareça duplicado
-            seen_debts = set()
-            for linked in debt_links_to_reduce:
-                # linked é um ORM Debt
-                if linked.id in seen_debts:
-                    continue
-                seen_debts.add(linked.id)
-
-                remaining_before = linked.months
-                linked.months = max(0, linked.months - 1)
-                if linked.months == 0:
-                    await session.delete(linked)
-                else:
-                    session.add(linked)
                 try:
-                    monthly = float(linked.monthly_payment)
+                    paid_total = float(value_to_use)
                 except Exception:
-                    monthly = 0.0
-                debt_updates_info.append((linked.creditor, 1, remaining_before, linked.months, monthly))
+                    paid_total = 0.0
 
-            # Marcar COMO LIQUIDADAS apenas as transações que não eram parceladas (nonparcel_txs)
-            for tx in nonparcel_txs:
-                try:
-                    tx.is_settled = True
-                except Exception:
-                    # fallback: se campo não existir, tentar setar status/paid ou atualizar descrição
-                    if hasattr(tx, 'status'):
-                        setattr(tx, 'status', 'paid')
-                    elif hasattr(tx, 'paid'):
-                        setattr(tx, 'paid', True)
+                # Busca TODAS as transações NÃO liquidadas do cartão (sem filtro por mês)
+                result = await session.execute(
+                    select(Transaction)
+                    .where(Transaction.account_id == card_account.id)
+                    .where(Transaction.is_settled == False)
+                )
+                card_txs = result.scalars().all()
+
+                invoice_total = 0.0
+                debt_links_to_reduce = []
+                nonparcel_txs = []
+
+                for tx in card_txs:
+                    if tx.value is None or tx.value >= 0:
+                        continue
+                    desc = (tx.description or "").lower()
+
+                    # tenta encontrar Debts PARCELADO vinculados a essa tx (mesma sessão)
+                    debt_result = await session.execute(
+                        select(Debt)
+                        .where(Debt.profile_id == card_account.profile_id)
+                        .where(Debt.creditor.ilike(f"%#{tx.id}"))
+                        .where(Debt.type == DebtType.PARCELADO)
+                        .where(Debt.months > 0)
+                    )
+                    linked_debts = debt_result.scalars().all()
+
+                    if linked_debts:
+                        for linked in linked_debts:
+                            try:
+                                monthly = float(linked.monthly_payment)
+                                invoice_total += monthly
+                                debt_links_to_reduce.append(linked)
+                            except Exception:
+                                invoice_total += -tx.value
+                                nonparcel_txs.append(tx)
                     else:
-                        tx.description = (tx.description or "") + " [FATURA PAGA]"
-                session.add(tx)
+                        invoice_total += -tx.value
+                        nonparcel_txs.append(tx)
 
-            # Commit das alterações (transações + debts)
-            await session.commit()
-            await session.refresh(bank_tx)
-            await session.refresh(bank_account)
-            await session.refresh(card_tx)
-            await session.refresh(card_account)
+                invoice_total = round(invoice_total, 2)
 
-            # Mensagem final com detalhes
-            msg = (
-                f"✅ Pagamento registrado:\n"
-                f"Cartão: {card_account.name}\n"
-                f"Valor pago: {card_account.currency.value} {paid_total:.2f}\n"
+                # Atualiza saldos: saída na conta bancária (reduz) e "liquidação" no cartão (aumenta o balance do cartão)
+                bank_account.balance = (bank_account.balance or 0) - paid_total
+                card_account.balance = (card_account.balance or 0) + paid_total
+
+                # Criar transações de saída (bancária) e entrada (no cartão)
+                bank_tx = Transaction(
+                    type=TransactionType("saida"),
+                    value=-paid_total,
+                    category_id=(category.id if category else None),
+                    account_id=bank_account.id,
+                    profile_id=profile.id,
+                    description=(description or "") + (f" {debt_info_line}" if debt_info_line else ""),
+                    date=today,
+                    balance_before=balance_before
+                )
+
+                # balance_before para o cartão (com proteção None)
+                result = await session.execute(
+                    select(Transaction)
+                    .where(Transaction.account_id == card_account.id)
+                    .where(Transaction.date == today)
+                    .order_by(Transaction.id.desc())
+                )
+                last_tx_card_today = result.scalars().first()
+                if last_tx_card_today:
+                    last_card_balance_before = last_tx_card_today.balance_before or 0
+                    last_card_value = last_tx_card_today.value or 0
+                    card_balance_before = last_card_balance_before + last_card_value
+                else:
+                    card_balance_before = (card_account.balance or 0) - paid_total
+
+                card_tx = Transaction(
+                    type=TransactionType("entrada"),
+                    value=paid_total,
+                    category_id=None,
+                    account_id=card_account.id,
+                    profile_id=profile.id,
+                    description=(f"Pagamento do cartão via {bank_account.name}."),
+                    date=today,
+                    balance_before=card_balance_before
+                )
+
+                session.add(bank_tx)
+                session.add(card_tx)
+                session.add(bank_account)
+                session.add(card_account)
+
+                # Aplicar abatimentos nos debts PARCELADO (reduz months em 1) — usa mesma sessão
+                debt_updates_info = []
+                seen_debts = set()
+                for linked in debt_links_to_reduce:
+                    if linked.id in seen_debts:
+                        continue
+                    seen_debts.add(linked.id)
+
+                    remaining_before = linked.months
+                    linked.months = max(0, linked.months - 1)
+                    if linked.months == 0:
+                        await session.delete(linked)
+                    else:
+                        session.add(linked)
+                    try:
+                        monthly = float(linked.monthly_payment)
+                    except Exception:
+                        monthly = 0.0
+                    debt_updates_info.append((linked.creditor, 1, remaining_before, linked.months, monthly))
+
+                # Marcar COMO LIQUIDADAS apenas as transações que não eram parceladas (nonparcel_txs)
+                for tx in nonparcel_txs:
+                    try:
+                        tx.is_settled = True
+                    except Exception:
+                        if hasattr(tx, 'status'):
+                            setattr(tx, 'status', 'paid')
+                        elif hasattr(tx, 'paid'):
+                            setattr(tx, 'paid', True)
+                        else:
+                            tx.description = (tx.description or "") + " [FATURA PAGA]"
+                    session.add(tx)
+
+                # Commit das alterações (transações + debts)
+                await session.commit()
+
+                # Refresh objetos (se existirem)
+                try:
+                    await session.refresh(bank_tx)
+                except Exception:
+                    pass
+                try:
+                    await session.refresh(bank_account)
+                except Exception:
+                    pass
+                try:
+                    await session.refresh(card_tx)
+                except Exception:
+                    pass
+                try:
+                    await session.refresh(card_account)
+                except Exception:
+                    pass
+
+                # Mensagem final com detalhes
+                msg = (
+                    f"✅ Pagamento registrado:\n"
+                    f"Cartão: {card_account.name}\n"
+                    f"Valor pago: {getattr(card_account.currency, 'value', '')} {paid_total:.2f}\n"
+                )
+                if debt_updates_info:
+                    msg += "\n📌 Abatimentos realizados:\n"
+                    for du in debt_updates_info:
+                        creditor, reduced_months, before_m, after_m, amt = du
+                        msg += f"- {reduced_months}x de '{creditor}': R$ {amt:.2f} (de {before_m} -> {after_m})\n"
+
+                await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+                return
+
+            # Fluxo normal (não fatura de cartão)
+            account.balance = (account.balance or 0) + tx_value
+            currency = getattr(account.currency, "value", "")
+
+            # Cria transação normal
+            tx = Transaction(
+                type=TransactionType(t_type),
+                value=tx_value,
+                category_id=(category.id if category else None),
+                account_id=account.id,
+                profile_id=profile.id,
+                description=(description or "") + (f"{debt_info_line}" if debt_info_line else ""),
+                date=today,
+                balance_before=balance_before
             )
-            if debt_updates_info:
-                msg += "\n📌 Abatimentos realizados:\n"
-                for du in debt_updates_info:
-                    creditor, reduced_months, before_m, after_m, amt = du
-                    msg += f"- {reduced_months}x de '{creditor}': R$ {amt:.2f} (de {before_m} -> {after_m})\n"
+            session.add(tx)
+            session.add(account)
 
-            await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
-            return
+            # Se a transação foi uma compra no cartão e foi marcada como parcelada, cria registro de 'Debt' para acompanhar as parcelas
+            try:
+                installments = int(context.user_data.get("card_installments", 1))
+            except Exception:
+                installments = 1
 
+            # Verifica se a conta é cartão e se é uma saída e parcelado
+            if account.type == "credit_card" and t_type == "saida" and installments > 1:
+                installment_value = round(float(value_to_use) / installments, 2)
 
-        # Atualiza saldo da conta normalmente (fluxo não-fatura)
-        account.balance = (account.balance or 0) + tx_value
-        currency = account.currency.value
-
-        # Cria transação normal
-        tx = Transaction(
-            type=TransactionType(t_type),
-            value=tx_value,
-            category_id=(category.id if category else None),
-            account_id=account.id,
-            profile_id=profile.id,
-            description=(description or "") + (f"{debt_info_line}" if debt_info_line else ""),
-            date=today,
-            balance_before=balance_before
-        )
-        session.add(tx)
-        session.add(account)
-
-        # Se a transação foi uma compra no cartão e foi marcada como parcelada, cria registro de 'Debt' para acompanhar as parcelas
-        try:
-            installments = int(context.user_data.get("card_installments", 1))
-        except Exception:
-            installments = 1
-
-        # Verifica se a conta é cartão e se é uma saída
-        if account.type == "credit_card" and t_type == "saida" and installments > 1:
-            installment_value = round(float(value_to_use) / installments, 2)
-             # Determina o próximo número de parcela sequencial
-            async with get_session() as session:
+                # Determina o próximo número de parcela sequencial usando a MESMA session (sem abrir novo with)
                 result = await session.execute(
                     select(Debt)
                     .where(Debt.profile_id == profile.id)
@@ -941,7 +970,6 @@ async def save_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     .where(Debt.creditor.ilike(f"{account.name} - Parcelado #%"))
                 )
                 existing = result.scalars().all()
-                # Extrai números existentes
                 existing_numbers = []
                 for d in existing:
                     try:
@@ -951,29 +979,48 @@ async def save_transaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         continue
                 next_number = max(existing_numbers) + 1 if existing_numbers else 1
 
-            # Cria o debt com o número sequencial correto
-            creditor = f"{account.name} - Parcelado #{next_number}"
-            debt = Debt(profile_id=profile.id, creditor=creditor, months=installments, monthly_payment=installment_value, type=DebtType.PARCELADO)
-            session.add(debt)
-            await session.flush()
-            # Acrescenta uma linha informativa à descrição
-            tx.description = (tx.description or "") + f"📦 Parcelado em {installments}x de R$ {installment_value:.2f} (total R$ {value_to_use:.2f})"
+                # Cria o debt com o número sequencial correto
+                creditor = f"{account.name} - Parcelado #{next_number}"
+                debt = Debt(profile_id=profile.id, creditor=creditor, months=installments,
+                            monthly_payment=installment_value, type=DebtType.PARCELADO)
+                session.add(debt)
+                await session.flush()
 
-        # Commit único (inclui dívida se aplicável)
-        await session.commit()
-        await session.refresh(tx)
-        await session.refresh(account)
+                # Acrescenta uma linha informativa à descrição
+                tx.description = (tx.description or "") + f"📦 Parcelado em {installments}x de R$ {installment_value:.2f} (total R$ {value_to_use:.2f})"
 
-        # Mensagem final para transação normal
-        category_line = f"Categoria: {category.name}" if category else ""
-        await update.message.reply_text(
-            f"✅ Transação registrada:\n"
-            f"Tipo: {t_type}\n"
-            f"Valor: {currency} {tx_value:.2f}\n"
-            f"{category_line}\n"
-            f"{debt_info_line}\n"
-            f"Conta: {account.name}\n"
-            f"Saldo atual da conta: {currency} {account.balance:.2f}\n"
-            f"Data: {today.strftime('%d/%m/%Y')}\n",
-            reply_markup=ReplyKeyboardRemove()
-        )
+            # Commit único (inclui dívida se aplicável)
+            await session.commit()
+
+            # Refresh seguro (só quando variáveis existem)
+            try:
+                await session.refresh(tx)
+            except Exception:
+                pass
+            try:
+                await session.refresh(account)
+            except Exception:
+                pass
+
+            # Mensagem final para transação normal
+            category_line = f"Categoria: {category.name}" if category else ""
+            await update.message.reply_text(
+                f"✅ Transação registrada:\n"
+                f"Tipo: {t_type}\n"
+                f"Valor: {currency} {tx_value:.2f}\n"
+                f"{category_line}\n"
+                f"{debt_info_line}\n"
+                f"Conta: {account.name}\n"
+                f"Saldo atual da conta: {currency} {account.balance:.2f}\n"
+                f"Data: {today.strftime('%d/%m/%Y')}\n",
+                reply_markup=ReplyKeyboardRemove()
+            )
+
+    except Exception:
+        # Log completo para debugging
+        logger.exception("Erro ao salvar transação em save_transaction")
+        try:
+            await update.message.reply_text("⚠️ Ocorreu um erro interno ao salvar a transação. Tente novamente mais tarde.")
+        except Exception:
+            pass
+        return
