@@ -6,6 +6,8 @@ from  handlers.mydata import my_data
 from  handlers.start import start_handler
 from  handlers.wallet import daily_budget
 from  handlers.quick_purchase import add_quick_purchase
+from  handlers.last_transitions import last_transitions
+
 
 from telegram import Update, ReplyKeyboardRemove
 
@@ -51,6 +53,7 @@ def register_handlers(app):
 
     # transactions
     app.add_handler(CommandHandler("add", add_transaction))
+    app.add_handler(CommandHandler("listatransacoes", last_transitions))
 
     # wallet
     app.add_handler(CommandHandler("carteira", daily_budget))

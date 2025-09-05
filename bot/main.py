@@ -25,6 +25,7 @@ async def main():
         BotCommand("comprarapida", "Compra rápida"),
         BotCommand("add", "Adicionar uma nova transação"),
         BotCommand("carteira", "Visualize a carteira do dia"),
+        BotCommand("listatransacoes", "Ultimos lançamentos"),
         BotCommand("meusdados", "Meu Dados"),
         BotCommand("resumo", "Resumo do Mês"),
         BotCommand("listacategorias", "Listar categorias ou transações"),
