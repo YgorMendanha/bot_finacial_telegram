@@ -26,9 +26,10 @@ async def main():
         BotCommand("add", "Adicionar uma nova transação"),
         BotCommand("carteira", "Visualize a carteira do dia"),
         BotCommand("listatransacoes", "Ultimos lançamentos"),
+        BotCommand("cancelartransacoes", "Cancelar lançamento"),
         BotCommand("meusdados", "Meu Dados"),
         BotCommand("resumo", "Resumo do Mês"),
-        BotCommand("listacategorias", "Listar categorias ou transações"),
+        BotCommand("listacategorias", "Listar categorias"),
         BotCommand("start", "Mostrar mensagem de boas-vindas"),
         BotCommand("exit", "Reiniciar"),
     ]

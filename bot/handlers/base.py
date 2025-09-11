@@ -7,6 +7,8 @@ from  handlers.start import start_handler
 from  handlers.wallet import daily_budget
 from  handlers.quick_purchase import add_quick_purchase
 from  handlers.last_transitions import last_transitions
+from  handlers.cancel_transaction import cancel_transaction
+
 
 
 from telegram import Update, ReplyKeyboardRemove
@@ -38,6 +40,11 @@ async def step_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await add_quick_purchase(update, context)
         return    
     
+    # Fluxo de Cancelar transação
+    if "step_cancel" in context.user_data:
+        await cancel_transaction(update, context)
+        return  
+    
     # Fluxo de Dados Pessoais
     if "mydata_step" in context.user_data:
         await my_data(update, context)
@@ -54,6 +61,7 @@ def register_handlers(app):
     # transactions
     app.add_handler(CommandHandler("add", add_transaction))
     app.add_handler(CommandHandler("listatransacoes", last_transitions))
+    app.add_handler(CommandHandler("cancelartransacoes", cancel_transaction))
 
     # wallet
     app.add_handler(CommandHandler("carteira", daily_budget))

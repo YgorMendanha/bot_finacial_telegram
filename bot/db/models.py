@@ -27,7 +27,7 @@ class DebtStatus(enum.Enum):
     PAID = "paid"
 
 class DebtType(enum.Enum):
-    REAL = "real"        # empréstimo, boleto, financiamento
+    REAL = "real"      
     PARCELADO = "parcelado"
 
 
@@ -84,7 +84,6 @@ class Category(Base):
         return f"<Category(id={self.id}, name='{self.name}', profile_id={self.profile_id})>"
 
 
-# Transações da conta
 class Transaction(Base):
     __tablename__ = "transactions"
 
@@ -116,6 +115,7 @@ class Transaction(Base):
             f"date={self.date}, account_id={self.account_id}, category_id={self.category_id}, "
             f"balance_before={self.balance_before})>"
         )
+
 class Debt(Base):
     __tablename__ = "debts"
 
